@@ -14,7 +14,7 @@ vec3 reflection = reflect(-light_ray, v_normal);
 
 void main(){
   float light_distance = dot(light_ray, light_ray);
-  float light_bounce = clamp( dot(normalize(v_normal),light_ray),0,1);
+  float light_bounce = clamp( dot(light_ray,v_normal),0,1);
 
   float diffuse = light_power * light_bounce / light_distance;
 

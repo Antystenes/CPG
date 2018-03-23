@@ -17,7 +17,7 @@ out vec3 light_ray;
 out vec3 v_normal;
 out vec3 eye_direction;
 
-vec4 light = vec4(3,200,5,1);
+vec4 light = vec4(10,100,100,1);
 
 void main(){
   mat4 posMat = pos * rot;
@@ -25,9 +25,9 @@ void main(){
 
   vec3 light2 = (camera * light).xyz;
 
-  light_ray = normalize(light2 - position.xyz);
-
   vec4 view_position = camera * position;
+
+  light_ray = normalize(light2 - view_position.xyz);
 
   eye_direction = normalize(-view_position.xyz);
 

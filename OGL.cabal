@@ -26,6 +26,7 @@ library
                      , sdl2
                      , sdl2-image
                      , numeric-prelude
+                     , hashmap
                      , text
                      , vector
                      , lens
