@@ -3,6 +3,7 @@
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE BangPatterns#-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 module SDLib where
 
 import qualified SDL
@@ -26,6 +27,7 @@ import           Debug.Trace
 import           Control.Arrow
 import           Number.Quaternion hiding (normalize,norm)
 import           Data.Monoid
+import           Utils
 
 import           OBJReader
 
@@ -55,7 +57,7 @@ data GameObject = GameObject { _mesh     :: Mesh,
                                _physics  :: Maybe PhysicsData,
                                _children :: [GameObject] }
 
-data Objects =Objects { _player :: GameObject,
+data Objects = Objects { _player :: GameObject,
                         _npc    :: [GameObject],
                         _area   :: [GameObject] }
 
@@ -67,16 +69,21 @@ normalize :: L.Vector Float -> L.Vector Float
 normalize v = let n = (1/) . realToFrac $ L.norm_2 v
                in L.scale n v
 
-lookAt :: L.Vector Float -> L.Vector Float -> L.Matrix Float
-lookAt eye at =
+
+lookAt' :: L.Vector Float -> L.Vector Float -> L.Vector Float -> L.Matrix Float
+lookAt' up eye at =
   let zaxis = normalize $ eye - at
-      xaxis = normalize $ L.cross zaxis [0,1,0]
+      xaxis = normalize $ L.cross zaxis up
       yaxis = L.cross xaxis zaxis
       crd x = negate $ L.dot eye x
   in (4L.><4) [ xaxis!0,   yaxis!0,   zaxis!0,   0
               , xaxis!1,   yaxis!1,   zaxis!1,   0
               , xaxis!2,   yaxis!2,   zaxis!2,   0
               , crd xaxis, crd yaxis, crd zaxis, 1]
+
+
+lookAt :: L.Vector Float -> L.Vector Float -> L.Matrix Float
+lookAt = lookAt' [0,1,0]
 
 makeLenses ''PhysicsData
 
@@ -86,7 +93,7 @@ makeLenses ''Objects
 
 makeLenses ''Scene
 
-maxspeed = 150
+maxspeed = 50
 
 traverseObjects :: (GameObject -> GameObject) -> Scene -> Scene
 traverseObjects =
@@ -126,14 +133,14 @@ applyWithPhysics f obj = case obj^.physics of
 traction = applyWithPhysics helper
   where helper phy =
           let -- spdNr = realToFrac . L.norm_2 $ phy^.speed
-              force = 1
+              force = 0.3
           in over (physics._Just.acc) (subtract . VS.map (*force) $ phy^.speed)
 
 boost = applyWithPhysics helper
   where helper phy obj =
           let quat   = obj^.mesh.quaternion
               rot    = (\(a,b,c) -> [a,b,c]) . imag . flip quatConcat (qInverse quat) $ quatConcat quat (0 +:: (0,0,-1))
-              force  = 30 -- exp (maxspeed - sNorm) - 1
+              force  = 4 -- exp (maxspeed - sNorm) - 1
           in over (physics._Just.acc) (+VS.map (*force) rot) obj
 
 posToMat vec = let pref = [1,0,0,0
@@ -159,8 +166,7 @@ instance Drawable Scene where
   draw (Scene pos obj proj) =
     let camMat     = lookAt pos $ obj^.player.location
         objectDraw = drawObject camMat proj
-    in do
-      mapM_ objectDraw $ obj^.player : obj^.npc ++ obj^.area
+    in mapM_ objectDraw $ obj^.player : obj^.npc ++ obj^.area
 
 step :: Float
 step = 0.02
@@ -189,7 +195,8 @@ adjustCamera scene =
       dist    = norm pointer
       maxDist = 5
       tooFar  = dist > maxDist
-  in if tooFar then over campos (+L.scale ((dist-maxDist)/dist) pointer) scene
+      movement= L.scale ((dist-maxDist)/dist) pointer
+  in if tooFar then over campos (+movement) scene
      else scene
 
 moveHor :: Float -> Scene -> Scene
@@ -216,11 +223,12 @@ hermiteMatrix = (4L.><4)
 
 curvePoints :: Matrix Float
 curvePoints = (4L.><3)
-  [ 4, 0, -10
-  ,-4, 0, -10
-  , 0, 10, 0
-  , 0, 10, 0]
+  [ 20, 0, -10
+  , 20, 0, -10
+  , 100, 100, 0
+  , 100, -100, 0]
 
+countPosition :: Float -> LD.Vector Float
 countPosition t = flatten $ (1><4) [t^3,t^2,t^1,1] <> hermMat
   where
     hermMat = hermiteMatrix <> curvePoints
@@ -268,10 +276,11 @@ scale3 n (a,b,c) = (n*a,n*b,n*c)
 gravityCenter :: L.Vector Float
 gravityCenter = [0,0,0]
 
-addGravityForce :: GameObject -> GameObject
-addGravityForce obj =
-  let direction = gravityCenter - obj^.location
-      force = L.scale 1 direction
+addGravityForce :: VS.Vector Float -> GameObject -> GameObject
+addGravityForce gravCent obj =
+  let direction = gravCent - obj^.location
+      norm = realToFrac $ L.norm_2 direction
+      force = L.scale (10/norm) direction
   in over (physics._Just.acc) (+force) obj
 
 quatConcat q0 q1 =
@@ -300,29 +309,39 @@ drawObject cam proj obj = do
   passMatrix "proj" proj
   passMatrix "rot" . flatten . quatToMat $ obj^.mesh.quaternion
   passMatrix "pos" . flatten . posToMat  $ obj^.location
-  GL.textureBinding GL.Texture2D $= obj^.mesh.texture
+
+  passTexture "texSampler" 1 $ obj^.mesh.texture
+  passTexture "normSampler" 2 $ obj^.mesh.normalMap
+  -- GLRaw.glActiveTexture GLRaw.GL_TEXTURE0
+  -- GL.textureBinding GL.Texture2D $= obj^.mesh.texture
+
   -- GL.bindBuffer GL.ElementArrayBuffer $= Just (obj^.mesh.ebo)
-  GL.drawElements GL.Triangles (fromIntegral . VS.length $ obj^.mesh.indices) GL.UnsignedInt (intPtrToPtr $ IntPtr 0)
+  GL.drawElements GL.Triangles indLen GL.UnsignedInt (intPtrToPtr $ IntPtr 0)
   -- GL.drawArrays GL.Triangles 0 (fromIntegral $ div (VS.length vrt) 17)
   GL.bindVertexArrayObject $= Nothing
   where
-    vrt       = obj^.mesh.vertices
+    indLen    = fromIntegral . VS.length $ obj^.mesh.indices
     quatToMat = mat3ToMat4 . LD.fromArray2D . toRotationMatrix
+    uniformName name =
+      HM.findWithDefault (-1) name $ obj^.mesh.shaders.uniforms
     passMatrix name mat =
-      let uniformName = HM.findWithDefault (-1) name $ obj^.mesh.shaders.uniforms
-      in VS.unsafeWith mat $
-           \ptr -> GLRaw.glUniformMatrix4fv uniformName 1 0 ptr
+      VS.unsafeWith mat $
+         GLRaw.glUniformMatrix4fv (uniformName name) 1 0
+    passTexture name pos mtex = do
+      GLRaw.glActiveTexture $ glTexture pos
+      GL.textureBinding GL.Texture2D $= mtex
+      GL.uniform (GL.UniformLocation $ uniformName name) $= GL.TextureUnit pos
+
+
 
 vertexBufferData :: (VS.Vector Float, VS.Vector GL.BaseInstance)
 vertexBufferData =
   let v = --position        normal         UV        color          tangents
-          [-1.0, 0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-            1.0, 0.0, -1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-           -1.0, 0.0,  1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-            1.0, 0.0, -1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-            1.0, 0.0,  1.0, 0.0, 1.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-           -1.0, 0.0,  1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-      i = [0,1,2,3,4,5]
+          [-5.0, 0.0, -5.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 0.0, 1.0,
+            5.0, 0.0, -5.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.1, 0.0, 0.0, 0.0, 0.0, 1.0,
+           -5.0, 0.0,  5.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.1, 0.0, 0.0, 0.0, 0.0, 1.0,
+            5.0, 0.0,  5.0, 0.0, 1.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 0.0, 1.0]
+      i = [0,1,2,1,3,2]
   in (v,i)
 
 handleQuit :: SDL.Event -> Bool
@@ -351,57 +370,74 @@ keys = [SDL.ScancodeA,
         SDL.ScancodeLeft,
         SDL.ScancodeRight]
 
+frameTime = round $ 1000/60
+
 mainLoop :: Float -> SDL.Window -> Scene -> IO ()
 mainLoop time window scene = do
+  begTime <- SDL.ticks
   GL.clear [GL.ColorBuffer, GL.DepthBuffer]
   draw scene
   SDL.glSwapWindow window
   events <- SDL.pollEvents
   kState <- SDL.getKeyboardState
   let qpressed   = any handleQuit events
-      newTime = time + 0.001
-      newTime2 = if newTime > 1 then 0 else newTime
+      newTime    = time + (0.1*step)
+      newTime2   = if newTime > 1 then 0 else newTime
       handleKeys = foldr ((.).keyHandler) id $ filter kState keys
-      newScene   = -- set (objects.npc.ix 0.location) (countPosition newTime2)
---                  adjustCamera
+      loc        = scene^.objects.player.location
+      floc       = scene^.objects.npc
+      updateNPCS = traction . addSeparationForce floc . addGravityForce loc
+      newScene   = -- set (objects.player.location) (countPosition newTime2)
+                 adjustCamera
 --                  . over (objects.player) (applyForce.traction)
-
-                 traverseObjects (applyForce.addGravityForce)
+                 . over (objects.npc.traverse) updateNPCS
+                 . traverseObjects applyForce
                  $ handleKeys scene
+  endTime <- SDL.ticks
+
+  when ((endTime - begTime) < frameTime)
+    $ SDL.delay (frameTime - (endTime - begTime))
+  -- print $ endTime - begTime
   unless qpressed $ mainLoop newTime2 window newScene
 
-flatQuad shad = createMesh vertexBufferData shad . Just
+flatQuad shad tex norm =
+  createMesh vertexBufferData shad (Just tex) (Just norm)
 
-createMesh verts shad mtex = do
+createMesh verts shad mtex norm = do
     vao <- GL.genObjectName
     GL.bindVertexArrayObject $= Just vao
+    ebo <- createAndBindArrayBuffer GL.ElementArrayBuffer $ snd verts
+    vbo <- createAndBindArrayBuffer GL.ArrayBuffer $ fst verts
 
-    ebo <- GL.genObjectName
-    GL.bindBuffer GL.ElementArrayBuffer $= Just ebo
-    sendData GL.ElementArrayBuffer $ snd verts
-
-    vbo <- GL.genObjectName
-    GL.bindBuffer GL.ArrayBuffer $= Just vbo
-    sendData GL.ArrayBuffer $ fst verts
-
-    setAttrib 17 3 0 0  -- vertex location
-    setAttrib 17 3 1 3  -- vertex normal
-    setAttrib 17 2 2 6  -- vertex UV
-    setAttrib 17 3 3 8  -- vertex color
-    setAttrib 17 3 4 11 -- vertex tangent
-    setAttrib 17 3 5 14 -- vertex bitangent
+    setAttrib 17 3 "vertexPosition_modelspace" 0  -- vertex location
+    setAttrib 17 3 "vertexNormal" 3  -- vertex normal
+    setAttrib 17 2 "vertexUV" 6  -- vertex UV
+    setAttrib 17 3 "vertex_col" 8  -- vertex color
+    setAttrib 17 3 "vertex_tangent" 11 -- vertex tangent
+    setAttrib 17 3 "vertex_bitangent" 14 -- vertex bitangent
     GL.bindVertexArrayObject $= Nothing
-    return $ Mesh (fst verts) (snd verts) vao vbo ebo shad Nothing (1 +:: (0,0,0)) mtex Nothing
+    return $ uncurry Mesh verts vao vbo ebo shad Nothing (1 +:: (0,0,0)) mtex norm
   where
-    setAttrib size attrSize loc offset = do
+    setAttrib size attrSize name offset = do
       let glFloatSize = sizeOf (undefined :: GL.GLfloat)
           glLocation  = fromIntegral $ size * glFloatSize
           glOffset    = intPtrToPtr $ fromIntegral(offset * glFloatSize)
-      GL.vertexAttribPointer (GL.AttribLocation loc) $=
+      loc <- GL.get $ GL.attribLocation (shad^.program) name
+      GL.vertexAttribPointer loc $=
         (GL.ToFloat,
          GL.VertexArrayDescriptor attrSize GL.Float glLocation glOffset)
-      GL.vertexAttribArray (GL.AttribLocation loc) $= GL.Enabled
+      GL.vertexAttribArray loc $= GL.Enabled
 
+createAndBindArrayBuffer
+  :: forall a. VS.Storable a =>
+  GL.BufferTarget
+  -> VS.Vector a
+  -> IO GL.BufferObject
+createAndBindArrayBuffer arrayType arrayData = do
+    bufferObject <- GL.genObjectName
+    GL.bindBuffer arrayType $= Just bufferObject
+    sendData arrayType arrayData
+    return bufferObject
 
 sendData :: forall a. VS.Storable a => GL.BufferTarget -> VS.Vector a -> IO ()
 sendData t d =
@@ -411,6 +447,27 @@ sendData t d =
                 vptr,
                 GL.StaticDraw)
 
+objectNeighbours obj objs =
+  let loc = obj^.location
+      maxDist = 3
+  in filter ((maxDist >). L.norm_2 . (loc -) . view location) objs
+
+separationsForce obj neighb =
+  let loc = obj^.location
+      minDist = 1 :: Float
+      checkVec v =
+        let n = realToFrac $ L.norm_2 v
+        in if minDist > n && n > 0.000001
+           then L.scale 1 v :: VS.Vector Float
+           else 0
+  in
+    foldr ((+).checkVec) 0
+    . map ((loc-) . view location)
+    $ neighb
+
+addSeparationForce neighb obj =
+  let sepForce = separationsForce obj neighb
+  in over (physics._Just.acc) (+sepForce) obj
 
 sdlMain :: IO ()
 sdlMain = do
@@ -420,18 +477,19 @@ sdlMain = do
     , SDL.windowInitialSize = SDL.V2 1366 768 }
   context <- SDL.glCreateContext window
   GL.depthFunc $= Just GL.Less
-  let uniforms = ["camera","proj","pos","rot","texSampler"] :: [String]
+  let uniforms = ["camera","proj","pos","rot","texSampler","normSampler"] :: [String]
   shad <- loadShaders "shaders/vert.glsl" "shaders/frag.glsl" uniforms
   shadNoTex <- loadShaders "shaders/vert.glsl" "shaders/frag_no_text.glsl" uniforms
   ultraMesh <- readOBJ "media/untitled.obj"
-  ultraVeh  <- readOBJ "media/vehicle.obj"
-  meh       <- createMesh ultraMesh shadNoTex Nothing
-  veh       <- createMesh ultraVeh shadNoTex Nothing
+  ultraVeh  <- first (LD.cmap (*0.5)) <$> readOBJ "media/vehicle.obj"
+  meh       <- createMesh ultraMesh shadNoTex Nothing Nothing
+  veh       <- createMesh ultraVeh shadNoTex Nothing Nothing
   -- crvMesh   <- createMesh curveVertices shadNoTex Nothing
-  normalTex <- loadTexture "media/normal2.png"
   tex       <- loadTexture "media/grass.jpg"
-  qd        <- flatQuad shad tex
-  let quads = map (\(x,z) -> GameObject qd [x, -1, z] Nothing []) [(x,z) | x <- [-30,-28..30], z <- [-50,-48..0]]
+  normalTex <- loadTexture "media/normal2.png"
+
+  qd        <- flatQuad shad tex normalTex
+  let quads = map (\(x,z) -> GameObject qd [x, -2, z] Nothing []) [(x,z) | x <- [60,50..0], z <- [-50,-40..0]]
       n = 0.1
       f = 100
       t = 1 / tan ((pi/3) / 2)
@@ -442,10 +500,11 @@ sdlMain = do
                     , 0,      0,          -1, 0]
       camPos = [ 0, 10,20]
       emptyPhysics = (Just $ PhysicsData [0,0,0] [0,0,0])
-      vehOb = GameObject veh [4,0,-10] emptyPhysics []
+      vehOb pos = GameObject veh pos emptyPhysics []
+      vehs = [vehOb [x,y,0] | x<- [1..5], y <- [1..5]]
       mehOb = GameObject meh [0,0.1,-3] emptyPhysics []
       -- curve = GameObject crvMesh [0,0,0] Nothing []
-      scene = Scene camPos (Objects mehOb [vehOb] quads) (flatten . L.tr $ proj)
+      scene = Scene camPos (Objects mehOb vehs quads) (flatten . L.tr $ proj)
   mainLoop 0 window scene
   GL.finish
   SDL.glDeleteContext context
