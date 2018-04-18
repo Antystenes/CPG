@@ -15,7 +15,14 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Lib, SDLib, OBJReader
+  exposed-modules:     Lib
+                     , SDLib
+                     , OBJReader
+                     , Utils
+                     , Utils.Quaternions
+                     , Data.Shaders
+                     , Data.Mesh
+                     , Data.PhysicsData
   build-depends:       GLFW-b
                      , OpenGL
                      , OpenGLRaw
