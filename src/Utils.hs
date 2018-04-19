@@ -13,6 +13,19 @@ import qualified Graphics.Rendering.OpenGL.GL as GL
 import qualified Numeric.LinearAlgebra as L
 import           Data.Vector.Storable ((!))
 import qualified Numeric.LinearAlgebra.Data as LD
+import qualified Data.Vector.Storable as VS
+
+step :: Float
+step = 0.02
+
+norm :: L.Vector Float -> Float
+norm = realToFrac . L.norm_2
+
+
+posToMat vec = let pref = [1,0,0,0
+                           ,0,1,0,0
+                           ,0,0,1,0]
+                in LD.reshape 4 $ pref VS.++ VS.snoc vec 1
 
 glTexture :: GL.GLuint -> GLRaw.GLenum
 glTexture = (GLRaw.GL_TEXTURE0+) . fromIntegral
@@ -36,7 +49,7 @@ lookAt = lookAt' [0,1,0]
 
 normalize :: L.Vector Float -> L.Vector Float
 normalize v =
-  let n = (1/) . realToFrac $ L.norm_2 v
+  let n = (1/) . norm $ v
   in L.scale n v
 
 mat3ToMat4 :: L.Matrix Float -> L.Matrix Float

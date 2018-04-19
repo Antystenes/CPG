@@ -51,7 +51,11 @@ quatConcat q0 q1 =
       vr = scale3 w1 v0 `sum3` scale3 w0 v1 `sum3` crossProduct v1 v0
   in wr +:: vr
 
+qInverse :: T Float -> T Float
 qInverse q =
   let w = real q
       v = (\(a,b,c) -> (negate a, negate b, negate c)) $ imag q
   in w +:: v
+
+qZero :: T Float
+qZero = 1 +:: (0,0,0)

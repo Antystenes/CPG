@@ -23,6 +23,12 @@ library
                      , Data.Shaders
                      , Data.Mesh
                      , Data.PhysicsData
+                     , Data.GameObject
+                     , Data.Scene
+                     , Physics.Mechanics
+                     , Tasks.Swarm
+                     , Tasks.Curve
+                     , EventHandler
   build-depends:       GLFW-b
                      , OpenGL
                      , OpenGLRaw

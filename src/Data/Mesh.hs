@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TemplateHaskell, ScopedTypeVariables, OverloadedLists #-}
 module Data.Mesh where
 
 
@@ -10,8 +10,10 @@ import           Number.Quaternion (T)
 import           Numeric.LinearAlgebra (Matrix, Vector)
 import qualified SDL
 import qualified SDL.Image as SDLImage
-
+import           Foreign (sizeOf)
+import           Foreign.Ptr (intPtrToPtr)
 import           Data.Shaders
+import           Utils.Quaternions (qZero)
 
 data Mesh = Mesh { _vertices     :: Vector Float,
                    _indices      :: Vector GL.BaseInstance,
@@ -42,3 +44,62 @@ loadTexture fn = do
     ((GL.Linear', Nothing),GL.Linear')
   SDL.unlockSurface sdlSurf
   return texName
+
+createMesh verts shad mtex norm = do
+    vao <- GL.genObjectName
+    GL.bindVertexArrayObject $= Just vao
+    ebo <- createAndBindArrayBuffer GL.ElementArrayBuffer $ snd verts
+    vbo <- createAndBindArrayBuffer GL.ArrayBuffer $ fst verts
+
+    setAttrib 17 3 "vertexPosition_modelspace" 0  -- vertex location
+    setAttrib 17 3 "vertexNormal" 3  -- vertex normal
+    setAttrib 17 2 "vertexUV" 6  -- vertex UV
+    setAttrib 17 3 "vertex_col" 8  -- vertex color
+    setAttrib 17 3 "vertex_tangent" 11 -- vertex tangent
+    setAttrib 17 3 "vertex_bitangent" 14 -- vertex bitangent
+    GL.bindVertexArrayObject $= Nothing
+    return $ uncurry Mesh verts vao vbo ebo shad Nothing qZero mtex norm
+  where
+    setAttrib size attrSize name offset = do
+      let glFloatSize = sizeOf (undefined :: GL.GLfloat)
+          glLocation  = fromIntegral $ size * glFloatSize
+          glOffset    = intPtrToPtr $ fromIntegral(offset * glFloatSize)
+      loc <- GL.get $ GL.attribLocation (shad^.program) name
+      GL.vertexAttribPointer loc $=
+        (GL.ToFloat,
+         GL.VertexArrayDescriptor attrSize GL.Float glLocation glOffset)
+      GL.vertexAttribArray loc $= GL.Enabled
+
+sendData :: forall a. VS.Storable a => GL.BufferTarget -> VS.Vector a -> IO ()
+sendData t d =
+  VS.unsafeWith d $
+    \vptr -> GL.bufferData t $=
+               (fromIntegral $ VS.length d * sizeOf (undefined :: a),
+                vptr,
+                GL.StaticDraw)
+
+createAndBindArrayBuffer
+  :: forall a. VS.Storable a =>
+  GL.BufferTarget
+  -> VS.Vector a
+  -> IO GL.BufferObject
+createAndBindArrayBuffer arrayType arrayData = do
+    bufferObject <- GL.genObjectName
+    GL.bindBuffer arrayType $= Just bufferObject
+    sendData arrayType arrayData
+    return bufferObject
+
+
+vertexBufferData :: (VS.Vector Float, VS.Vector GL.BaseInstance)
+vertexBufferData =
+  let v = --position        normal         UV        color          tangents
+          [-5.0, 0.0, -5.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 0.0, 1.0,
+            5.0, 0.0, -5.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.1, 0.0, 0.0, 0.0, 0.0, 1.0,
+           -5.0, 0.0,  5.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.1, 0.0, 0.0, 0.0, 0.0, 1.0,
+            5.0, 0.0,  5.0, 0.0, 1.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 0.0, 1.0]
+      i = [0,1,2,1,3,2]
+  in (v,i)
+
+
+flatQuad shad tex norm =
+  createMesh vertexBufferData shad (Just tex) (Just norm)
