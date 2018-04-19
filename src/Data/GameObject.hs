@@ -27,10 +27,12 @@ data GameObject = GameObject {
 
 makeLenses ''GameObject
 
+initializePhysics :: GameObject -> GameObject
 initializePhysics obj =
   let quat = obj^.mesh.quaternion
   in set physics (Just $ startPhysics quat) obj
 
+turnQuatZ :: Float -> GameObject -> GameObject
 turnQuatZ = over (mesh.quaternion) . quatConcat . rotQuatZ
   where
     rotQuatZ t = cos (t/2) +:: (0,sin $ t / 2,0)

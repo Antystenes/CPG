@@ -1,31 +1,22 @@
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE OverloadedLists #-}
-{-# LANGUAGE BangPatterns#-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module SDLib where
 
 import qualified SDL
-import qualified Data.Vector.Storable as VS
 import qualified Graphics.Rendering.OpenGL.GL as GL
 import           Graphics.Rendering.OpenGL.GL (($=))
-import qualified Graphics.GL as GLRaw
 import           Control.Monad
-import           Foreign (sizeOf)
-import           Foreign.Ptr (intPtrToPtr, IntPtr(..))
 import qualified Numeric.LinearAlgebra as L
-import           Numeric.LinearAlgebra (Matrix, (><))
+import           Numeric.LinearAlgebra ((><))
 import           Numeric.LinearAlgebra.Data (flatten)
 import qualified Numeric.LinearAlgebra.Data as LD
-import qualified Data.HashMap               as HM
 import           Control.Lens      hiding (indices)
 import           Debug.Trace
 import           Control.Arrow
-import           Number.Quaternion hiding (normalize,norm)
-import qualified Number.Quaternion as Q
-import           Data.Monoid
-import           Utils (lookAt,glTexture,posToMat, step, norm)
+
+import           Utils (step)
 
 import           OBJReader
 import           Data.Shaders (loadShaders)
@@ -35,21 +26,15 @@ import           Data.Mesh    ( loadTexture
                               , flatQuad
                               -- lenses
                               , quaternion)
-
 import           Data.PhysicsData ( acc, speed
                                   , angularS)
-
 import           Data.GameObject
-
 import           Utils.Quaternions
-
 import           Data.Scene
-
 import           Physics.Mechanics
-
 import           Tasks.Swarm
-
 import           EventHandler
+
 
 frameTime = round $ 1000/60
 
@@ -70,7 +55,6 @@ mainLoop time window scene = do
       updateNPCS = traction . addSeparationForce floc . addGravityForce loc
       newScene   = -- set objects.player.location) (countPosition newTime2)
                  adjustCamera
---                  . over (objects.player) (applyForce.traction)
                  . over (objects.npc.traverse) updateNPCS
                  . traverseObjects (applyForce.traction)
                  $ handleKeys scene

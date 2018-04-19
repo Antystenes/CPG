@@ -2,7 +2,7 @@
 
 module Data.Scene where
 
-import           Numeric.LinearAlgebra (Matrix, Vector,(><), scale)
+import           Numeric.LinearAlgebra (Vector, scale)
 import qualified Graphics.GL as GLRaw
 import           Control.Lens
 import           Control.Arrow
@@ -56,7 +56,7 @@ moveForwardCamera = moveDepth step
 moveBackCamera :: Scene -> Scene
 moveBackCamera = moveDepth (-step)
 
-
+adjustCamera :: Scene -> Scene
 adjustCamera scene =
   let playPos = scene^.objects.player.location
       pointer = playPos - scene^.campos
