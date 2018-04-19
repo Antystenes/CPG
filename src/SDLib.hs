@@ -16,7 +16,7 @@ import           Control.Lens      hiding (indices)
 import           Debug.Trace
 import           Control.Arrow
 
-import           Utils (step)
+import           Utils (step, projectionMatrix)
 
 import           OBJReader
 import           Data.Shaders (loadShaders)
@@ -58,9 +58,6 @@ mainLoop time window scene = do
                  . over (objects.npc.traverse) updateNPCS
                  . traverseObjects (applyForce.traction)
                  $ handleKeys scene
-  print $ newScene^.objects.player.physics
-  print $ quatToMat3 $ newScene^.objects.player.mesh.quaternion
-  print $ newScene^.objects.player.mesh.quaternion
   endTime <- SDL.ticks
 
   when ((endTime - begTime) < frameTime)
@@ -90,21 +87,13 @@ sdlMain = do
 
   qd        <- flatQuad shad tex normalTex
   let quads = map (\(x,z) -> GameObject qd [x, -2, z] Nothing []) [(x,z) | x <- [60,50..0], z <- [-50,-40..0]]
-      n = 0.1
-      f = 100
-      t = 1 / tan ((pi/3) / 2)
-      as= 1366/768
-      proj = (4><4) [ t / as, 0,           0, 0
-                    , 0,      t,           0, 0
-                    , 0,      0, (f+n)/(n-f),(2*f*n)/(n-f)
-                    , 0,      0,          -1, 0]
       camPos = [ 0, 10,20]
       vehOb pos = initializePhysics $ GameObject veh pos Nothing []
       vehs = [vehOb [x,y,0] | x<- [1..5], y <- [1..5]]
       mehOb = initializePhysics $
         GameObject meh [0,0.1,-3] Nothing []
       -- curve = GameObject crvMesh [0,0,0] Nothing []
-      scene = Scene camPos (Objects mehOb [] quads) (flatten . L.tr $ proj)
+      scene = Scene camPos (Objects mehOb [] quads) (flatten . L.tr $ projectionMatrix)
   mainLoop 0 window scene
   GL.finish
   SDL.glDeleteContext context
