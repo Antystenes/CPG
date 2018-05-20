@@ -6,6 +6,8 @@ import           Numeric.LinearAlgebra (Vector, scale)
 import qualified Graphics.GL as GLRaw
 import           Control.Lens
 import           Control.Arrow
+import qualified Data.Vector as V
+
 
 import           Data.GameObject ( GameObject(..)
                                  , drawObject
@@ -14,8 +16,8 @@ import           Utils (lookAt, step, norm)
 
 data Objects = Objects {
   _player :: GameObject,
-  _npc    :: [GameObject],
-  _area   :: [GameObject] }
+  _npc    :: V.Vector GameObject,
+  _area   :: V.Vector GameObject }
 
 data Scene = Scene {
   _campos     :: Vector GLRaw.GLfloat,
@@ -38,7 +40,10 @@ instance Drawable Scene where
   draw (Scene pos obj proj) =
     let camMat     = lookAt pos $ obj^.player.location
         objectDraw = drawObject camMat proj
-    in mapM_ objectDraw $ obj^.player : obj^.npc ++ obj^.area
+    in
+      objectDraw (obj^.player)
+      >> V.mapM_ objectDraw (obj^.npc)
+      >> V.mapM_ objectDraw (obj^.area)
 
 -- CAMERA
 

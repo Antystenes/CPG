@@ -44,6 +44,7 @@ library
                      , vector
                      , lens
                      , template-haskell
+                     , hashtables
   default-language:    Haskell2010
 
 executable OGL-exe

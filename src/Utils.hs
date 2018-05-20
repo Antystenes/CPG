@@ -1,14 +1,9 @@
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedLists #-}
 
 module Utils where
 
-import           Language.Haskell.TH.Syntax
-import           Data.Proxy
 import qualified Graphics.GL as GLRaw
-import           GHC.TypeLits
 import qualified Graphics.Rendering.OpenGL.GL as GL
 import           Numeric.LinearAlgebra ((><), Vector, Matrix, scale, cross, dot)
 import qualified Numeric.LinearAlgebra as L
@@ -22,15 +17,17 @@ step = 0.02
 norm :: Vector Float -> Float
 norm = realToFrac . L.norm_2
 
+posToMatV :: Vector Float -> Vector Float
+posToMatV v =
+            [1,0,0,0
+             ,0,1,0,0
+             ,0,0,1,0
+             ,VS.unsafeIndex v 0,VS.unsafeIndex v 1, VS.unsafeIndex v 2,1]
 
-posToMat vec = let pref = [1,0,0,0
-                           ,0,1,0,0
-                           ,0,0,1,0]
-                in LD.reshape 4 $ pref VS.++ VS.snoc vec 1
+posToMat = LD.reshape 4 . posToMatV
 
 glTexture :: GL.GLuint -> GLRaw.GLenum
 glTexture = (GLRaw.GL_TEXTURE0+) . fromIntegral
-
 
 lookAt' :: Vector Float -> Vector Float -> Vector Float -> Matrix Float
 lookAt' up eye at =
@@ -54,7 +51,13 @@ normalize v =
   in scale n v
 
 mat3ToMat4 :: Matrix Float -> Matrix Float
-mat3ToMat4 = LD.fromLists . foldr (\a b -> (a ++ [0]) : b) [[0,0,0,1]] . LD.toLists
+mat3ToMat4 = helper . LD.flatten
+  -- LD.fromLists . foldr (\a -> ((a ++ [0]):)) [[0,0,0,1]] . LD.toLists
+  where
+    helper v = (4><4) [ VS.unsafeIndex v 0, VS.unsafeIndex v 1, VS.unsafeIndex v 2, 0
+                      , VS.unsafeIndex v 3, VS.unsafeIndex v 4, VS.unsafeIndex v 5, 0
+                      , VS.unsafeIndex v 6, VS.unsafeIndex v 7, VS.unsafeIndex v 8, 0
+                      ,                  0,                  0,                  0, 1]
 
 projectionMatrix :: Matrix Float
 projectionMatrix =
@@ -64,6 +67,14 @@ projectionMatrix =
          , 0,      0,          -1, 0]
   where
     n = 0.1
-    f = 100
+    f = 200
     t = 1 / tan ((pi/3) / 2)
     as= 1366/768
+
+maxSpeed = 10
+
+clampSpeed :: Vector Float -> Vector Float
+clampSpeed v =
+  if norm v >= maxSpeed
+  then LD.cmap (*maxSpeed) . normalize $ v
+  else v

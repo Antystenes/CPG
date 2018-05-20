@@ -17,13 +17,16 @@ import           Data.PhysicsData
 import           Utils.Quaternions
 import           Data.Shaders
 
-import           Utils (posToMat,glTexture)
+import           Utils (posToMatV,glTexture)
 
 data GameObject = GameObject {
   _mesh     :: Mesh,
   _location :: Vector Float,
   _physics  :: Maybe PhysicsData,
   _children :: [GameObject] }
+
+instance Show GameObject where
+  show (GameObject _ l p _) = show l ++ "\n" ++ show p ++ "\n"
 
 makeLenses ''GameObject
 
@@ -42,8 +45,8 @@ drawObject cam proj obj = do
   GL.bindVertexArrayObject $= Just (obj^.mesh.vao)
   passMatrix "camera" $ flatten cam
   passMatrix "proj" proj
-  passMatrix "rot" . flatten . quatToMat $ obj^.mesh.quaternion
-  passMatrix "pos" . flatten . posToMat  $ obj^.location
+  passMatrix "rot" . quatToMatV $ obj^.mesh.quaternion
+  passMatrix "pos" . posToMatV $ obj^.location
 
   passTexture "texSampler" 1 $ obj^.mesh.texture
   passTexture "normSampler" 2 $ obj^.mesh.normalMap

@@ -11,10 +11,7 @@ import qualified Numeric.LinearAlgebra.Data as LD
 import Utils (mat3ToMat4)
 
 qvMul :: VS.Vector Float -> T Float -> T Float
-qvMul [b,c,d] = quatConcat (0 +:: (b,c,d))
-  -- let w      = real quat
-  --     (x,y,z)= imag quat
-  -- in w +:: (x*b,c*y,d*z)
+qvMul v = quatConcat (0 +:: (VS.unsafeIndex v 0,VS.unsafeIndex v 1,VS.unsafeIndex v 2))
 
 quatToLInv inertiaDiag quat =
   let orientation = quatToMat3 quat
@@ -33,10 +30,25 @@ addQuat q1 q2 =
   in (r1 + r2) +:: sum3 i1 i2
 
 
-quatToMat = mat3ToMat4 . quatToMat3
+quatToMatV :: T Float -> VS.Vector Float
+quatToMatV q =
+  let r = real q
+      (i,j,k) = imag q
+      r2 = r*r
+      i2 = i*i;   j2 = j*j;   k2 = k*k;
+      ri = 2*r*i; rj = 2*r*j; rk = 2*r*k;
+      ij = 2*i*j; ki = 2*k*i; kj = 2*k*j;
+  in [ r2+i2-j2-k2,       ij-rk,       ki+rj, 0
+     ,       ij+rk, r2-i2+j2-k2,       kj-ri, 0
+     ,       ki-rj,       kj+ri, r2-i2-j2+k2, 0
+     ,           0,           0,           0, 1]
+
+quatToMat = LD.reshape 4 . quatToMatV
 
 quatToMat3 :: T Float -> Matrix Float
 quatToMat3 = LD.fromArray2D . toRotationMatrix
+
+
 
 sum3 (a,b,c) (d,e,f) = (a+d,b+e,c+f)
 

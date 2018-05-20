@@ -14,6 +14,7 @@ import           Foreign (sizeOf)
 import           Foreign.Ptr (intPtrToPtr)
 import           Data.Shaders
 import           Utils.Quaternions (qZero)
+import           Control.Arrow
 
 data Mesh = Mesh { _vertices     :: Vector Float,
                    _indices      :: Vector GL.BaseInstance,
@@ -103,3 +104,16 @@ vertexBufferData =
 
 flatQuad shad tex norm =
   createMesh vertexBufferData shad (Just tex) (Just norm)
+
+update :: (Float -> Float -> Bool) -> Int -> Float -> Vector Float -> Vector Float
+update pred ix f v = if pred f (v VS.! ix) then VS.update_ v [ix] [f] else v
+
+updatePair pred ix f = update pred ix f *** update ((not .) . pred) ix f
+
+getAABB :: Mesh -> (Vector Float, Vector Float)
+getAABB = VS.ifoldr inserter ([0,0,0],[0,0,0]) . view vertices
+  where inserter ix = case mod ix 17 of
+          1 -> updatePair (<) 0
+          2 -> updatePair (<) 1
+          3 -> updatePair (<) 2
+          _ -> flip const
