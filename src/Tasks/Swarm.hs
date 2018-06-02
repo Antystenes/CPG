@@ -1,14 +1,14 @@
 {-# LANGUAGE OverloadedLists #-}
+{-# LANGUAGE Strict #-}
 {-# LANGUAGE BangPatterns#-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RankNTypes#-}
+{-# LANGUAGE DeriveGeneric, DeriveAnyClass #-}
 module Tasks.Swarm where
 
 import           Numeric.LinearAlgebra (Vector, scale)
 import qualified Data.Vector.Storable as VS
 import           Control.Lens
-import           Data.Maybe (isJust,maybe)
-import qualified Data.HashMap as HM
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as MV
 import           Data.Vector.Mutable (STVector)
@@ -16,8 +16,9 @@ import           Control.Monad.ST
 import           Data.List (nub)
 import           Control.Monad ((<=<), foldM, when)
 import Debug.Trace
-import qualified Data.HashTable.ST.Basic as HT
-
+import qualified Data.HashTable.ST.Cuckoo as HT
+import Data.Vector.Strategies
+import GHC.Generics
 
 import Data.GameObject
 import Physics.Mechanics
@@ -27,29 +28,31 @@ import Utils (norm,normalize)
 
 type CollisionGrid s = HT.HashTable s (Int,Int,Int) [Int]
 
-integrityWeight = 0.4
-separationWeight = 0.4
-gravityWeight = 0.4
+integrityWeight = 0.5
+separationWeight = 2
+gravityWeight = 0.1
 
 cellSize = 4
 
-vehSize = 0.7
-minDist = 3
+vehSize = 1.2
+minDist = 4
 
 off = map ((.) (round.(/cellSize))) [(+ vehSize),(+ negate vehSize)]
 
+addInPl :: forall s. Vector Float -> STVector s Float -> ST s ()
+addInPl v mv = VS.zipWithM_ (\i a -> MV.modify mv (+a) i) [0,1,2] v
 
-data BoidComputation = BoidComputation { _object :: !GameObject
-                                       , _sumSp :: !(Vector Float)
-                                       , _separ :: !(Vector Float)
-                                       , _nrNeighb :: !Int} deriving Show
+data BoidComputation = BoidComputation { _object :: GameObject
+                                       , _sumSp :: Vector Float
+                                       , _separ :: Vector Float
+                                       , _nrNeighb :: {-# UNPACK #-} Int} deriving (Show, Generic, NFData)
 
 makeLenses ''BoidComputation
 
 fillGrid :: V.Vector GameObject -> ST s (CollisionGrid s, STVector s BoidComputation)
 fillGrid v = do
-  ht <- HT.newSized 400
-  v <- V.imapM (process ht) v >>= V.thaw
+  ht <- HT.newSized 6000
+  v <- V.thaw =<< V.imapM (process ht) v
   return (ht,v)
   where
     markObject ind obj t =
@@ -67,7 +70,7 @@ fillGrid v = do
       markObject ind ob g
       return $ initBoidComputation ob
 
-computeForces :: V.Vector GameObject -> V.Vector GameObject
+computeForces :: (GameObject -> GameObject) -> V.Vector GameObject -> V.Vector GameObject
 computeForces = computeForcesGrid fillGrid
 
 incCount = over nrNeighb (+1)
@@ -82,10 +85,10 @@ computeBoid (BoidComputation o v1 v2 n) =
     in putForceOnMid (integ+sep) o
   else o
 
-computeForcesGrid :: (forall s. V.Vector GameObject -> ST s (CollisionGrid s, STVector s BoidComputation)) -> V.Vector GameObject -> V.Vector GameObject
-computeForcesGrid s v =
-  V.map computeBoid $ runST $
-    V.freeze <=< uncurry computeForcesMap <=< s $ v
+computeForcesGrid :: (forall s. V.Vector GameObject -> ST s (CollisionGrid s, STVector s BoidComputation)) -> (GameObject -> GameObject) -> V.Vector GameObject -> V.Vector GameObject
+computeForcesGrid s f v =
+  V.map (f . computeBoid) $ runST $
+             V.freeze <=< uncurry computeForcesMap <=< s $ v
 
 computeForcesMap :: CollisionGrid s -> STVector s BoidComputation -> ST s (STVector s BoidComputation)
 computeForcesMap m v = HT.foldM (\x -> computeForcesST x . nub . snd) v m
@@ -106,8 +109,8 @@ computeForcesPair i1 v i2 = do
   when (norm (obj1^.location - obj2^.location) < minDist) $ do
     let sepForce = sep obj1 obj2
     MV.modify v (over separ (+ sepForce)) i1
-    MV.modify v (over separ (subtract sepForce)) i2
     MV.modify v (over sumSp (+ integ obj2)) i1
+    MV.modify v (over separ (subtract sepForce)) i2
     MV.modify v (over sumSp (+ integ obj1)) i2
     MV.modify v incCount i1
     MV.modify v incCount i2
@@ -124,6 +127,11 @@ integ obj =
   case obj^.physics of
     Just x  -> x^.speed
     Nothing -> [0,0,0]
+
+clamp :: Float -> Vector Float -> Vector Float
+clamp m v =
+  let n = norm v
+  in if n > m then scale (m/n) v else v
 
 addGravityForce :: Vector Float -> GameObject -> GameObject
 addGravityForce gravCent obj =

@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, OverloadedLists #-}
+{-# LANGUAGE TemplateHaskell, OverloadedLists, DeriveGeneric, DeriveAnyClass, Strict #-}
 
 module Data.PhysicsData where
 
@@ -8,6 +8,8 @@ import           Number.Quaternion (T)
 import           Numeric.LinearAlgebra (Matrix, Vector,(><))
 
 import           Utils.Quaternions
+import Control.DeepSeq
+import GHC.Generics
 
 data PhysicsData = PhysicsData {
   _acc      :: Vector Float,
@@ -15,7 +17,7 @@ data PhysicsData = PhysicsData {
   _inertiaD :: Matrix Float,
   _inertiaInv :: Matrix Float,
   _angularS :: Vector Float,
-  _torque   :: Vector Float } deriving Show
+  _torque   :: Vector Float } deriving (Show, Generic, NFData)
 
 makeLenses ''PhysicsData
 

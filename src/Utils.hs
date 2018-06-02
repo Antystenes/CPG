@@ -1,5 +1,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedLists #-}
+{-# LANGUAGE Strict #-}
 
 module Utils where
 
@@ -40,6 +41,20 @@ lookAt' up eye at =
             , xaxis!2,   yaxis!2,   zaxis!2,   0
             , crd xaxis, crd yaxis, crd zaxis, 1]
 
+pointAt :: Vector Float -> Vector Float
+pointAt sp =
+  let up =  [0,1,0]
+      eye = [0,0,0]
+      at  = sp
+      zaxis = normalize $ eye - at
+      xaxis = normalize $ cross zaxis up
+      yaxis = cross xaxis zaxis
+      crd x = negate $ dot eye x
+  in [ xaxis!0,   yaxis!0,   zaxis!0,   0
+     , xaxis!1,   yaxis!1,   zaxis!1,   0
+     , xaxis!2,   yaxis!2,   zaxis!2,   0
+     , crd xaxis, crd yaxis, crd zaxis, 1]
+
 
 lookAt :: Vector Float -> Vector Float -> Matrix Float
 lookAt = lookAt' [0,1,0]
@@ -49,6 +64,11 @@ normalize :: Vector Float -> Vector Float
 normalize v =
   let n = (1/) . norm $ v
   in scale n v
+
+remTrans = mat3ToMat4 . mat4ToMat3
+
+mat4ToMat3 :: Matrix Float -> Matrix Float
+mat4ToMat3 = LD.takeRows 3 . LD.takeColumns 3
 
 mat3ToMat4 :: Matrix Float -> Matrix Float
 mat3ToMat4 = helper . LD.flatten

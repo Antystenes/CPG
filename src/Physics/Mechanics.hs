@@ -4,10 +4,14 @@
 {-# LANGUAGE Strict #-}
 module Physics.Mechanics where
 
-import           Numeric.LinearAlgebra (Vector, scale, (#>), cross, cmap)
+import           Numeric.LinearAlgebra (Matrix, Vector, scale, (#>), cross, cmap,dot, ident, tr, (<>))
 import qualified Number.Quaternion as Q
 import           Control.Lens hiding ((<.>))
 import qualified Data.Vector.Storable as VS
+import           Control.Arrow hiding ((<+>))
+import           Debug.Trace
+import           Data.Maybe (fromMaybe)
+
 
 import Data.PhysicsData
 import Data.GameObject
@@ -27,14 +31,19 @@ infixr 1 <+>
 (<.>) :: Vector Float -> Vector Float -> Float
 (<.>) = (VS.sum .) . VS.zipWith (*)
 
-putForce :: Vector Float -> Vector Float -> GameObject -> GameObject
-putForce point force obj =
-          let p    = point - obj^.location
-              lin  = scale (force <.> p) force
-              ang  = cross force p
+putForceLoc :: Vector Float -> Vector Float -> GameObject -> GameObject
+putForceLoc point force obj =
+          let lin  = scale (force <.> point) force
+              ang  = cross force point
           in over (physics._Just.acc) (<+>lin)
            . over (physics._Just.torque) (<+>ang)
            $ obj
+
+
+putForce :: Vector Float -> Vector Float -> GameObject -> GameObject
+putForce point force obj =
+          let p    = point - obj^.location
+          in putForceLoc p force obj
 
 putForceOnMid = over (physics._Just.acc) . (+)
 
@@ -67,6 +76,61 @@ addScaled lens1 lens2 = applyWithPhysics helper
 
 applySpeed = addScaled location speed
 
+gForce :: Vector Float
+gForce = [0,9,0]
+
+gravityF = over (physics._Just.acc) (subtract gForce)
+
+gravCoeff = scale step gForce
+
+getVec :: Lens PhysicsData PhysicsData (VS.Vector Float) (VS.Vector Float) -> GameObject -> VS.Vector Float
+getVec l = fromMaybe [0,0,0] . preview (physics._Just.l)
+
+getMat :: Lens PhysicsData PhysicsData (Matrix Float) (Matrix Float) -> GameObject -> Matrix Float
+getMat l = fromMaybe (ident 3) . preview (physics._Just.l)
+
+floatOnGround obj =
+  let floorNormal = [0,1,0]
+      loc       = obj^.location
+      d         = dot floorNormal loc + 2
+      f         = negate (2-d)^2
+  in if d < 1
+  then putForceOnMid (scale f gForce) obj
+  else obj
+
+floorReaction obj =
+  let floorHeight = [0,-2,0]
+      floorNormal = [0,1,0] :: Vector Float
+      vert      = obj^.mesh.vertices
+      loc       = obj^.location
+      r         = quatToMat3 $ obj^.mesh.quaternion
+      translate = (+loc) . subtract floorHeight
+      collides = traceShowId
+               . filter ((<0) . snd)
+               . map (id &&& (dot floorNormal . translate) . (tr r #>))
+               $ vert
+      minD :: Float
+      minD = negate . foldr min 0 . map snd $ collides
+      response (point, depth) =
+        let
+          vrel = dot floorNormal $ getVec speed obj + cross (getVec angularS obj) point
+          aobj = dot floorNormal $ cross (i #> cross point floorNormal) point
+          i    = tr r <> getMat inertiaInv obj <> r
+          j    = negate 1 * vrel/(1+aobj)
+          force = scale j floorNormal
+          torque = getMat inertiaInv obj #> cross point force
+        in (force, torque)
+      (f,t) = foldr (\(a,b) (c,d) -> (a+c,b+d)) ([0,0,0],[0,0,0])
+            . map response
+            $ collides
+      n = fromIntegral $ length collides
+  in if n /= 0
+  then over (physics._Just.angularS) (+ scale (1/n) t)
+     . over (physics._Just.speed) (+ scale (1/n) f)
+     . over (location) (+ scale minD floorNormal)
+     $ obj
+  else obj
+
 applyAcc = addScaled (physics._Just.speed) acc
 
 applyForce = applyWithPhysics helper
@@ -81,16 +145,21 @@ applyForce = applyWithPhysics helper
          in set (physics._Just.torque) [0,0,0]
           . set (physics._Just.acc) [0,0,0]
           . applySpeed
+          . floorReaction
           . applyAcc
+          -- . floatOnGround
           . set (physics._Just.angularS) newOm
           . set (physics._Just.inertiaInv) inInD
           . set (mesh.quaternion) newQ
+          . gravityF
           $ obj
 
 applyLinear = set (physics._Just.torque) [0,0,0]
               . set (physics._Just.acc) [0,0,0]
               . applySpeed
+              -- . floorReaction
               . applyAcc
+              -- . gravityF
 
 applyWithPhysics :: (PhysicsData -> GameObject -> GameObject)
                    -> GameObject -> GameObject

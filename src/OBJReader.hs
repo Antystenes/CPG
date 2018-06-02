@@ -17,7 +17,7 @@ splitOn x =
 
 addP (a,b) (c,d) = (a+b,c+d)
 
-readOBJ :: FilePath -> IO (VS.Vector Float, VS.Vector GL.BaseInstance)
+readOBJ :: FilePath -> IO (VS.Vector Float, VS.Vector GL.BaseInstance,[VS.Vector Float])
 readOBJ fn = do
   text <- map words . lines <$> readFile fn
   let
@@ -50,9 +50,10 @@ readOBJ fn = do
     normalizedTangents = HM.fromList . map (fst &&& uncurry normalize) . HM.toList $ tangents
     faceProc p = (verts!!) *** (normals!!) >>> uncurry (VS.++) >>> addColor >>> flip (VS.++) (normalizedTangents HM.! p) $ p
     vBuffData = VS.concat $ map faceProc vertData
+    vertices  = map ((verts!!).fst) vertData
     indices  = VS.fromList . map (vertIxMap HM.!) . concat $ faces
 --      result   = VS.concat $ map faceProc faces
-  return (vBuffData, indices)
+  return (vBuffData, indices, vertices)
 
 normalizeVec :: VS.Vector Float -> VS.Vector Float
 normalizeVec v = L.scale (realToFrac . (1/) $ L.norm_2 v) v

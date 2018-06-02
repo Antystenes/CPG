@@ -35,3 +35,6 @@ loadShaders vertNm fragNm uniformNms = do
       addUniform prog hm name = do
         GL.UniformLocation ident <- GL.uniformLocation prog name
         return $ HM.insert name ident hm
+
+uniformName shaders name =
+  HM.findWithDefault (-1) name $ shaders^.uniforms

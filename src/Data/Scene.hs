@@ -1,9 +1,12 @@
 {-# LANGUAGE TemplateHaskell, OverloadedLists #-}
+{-# LANGUAGE Strict #-}
 
 module Data.Scene where
 
 import           Numeric.LinearAlgebra (Vector, scale)
 import qualified Graphics.GL as GLRaw
+import qualified SDL
+import qualified Graphics.Rendering.OpenGL.GL as GL
 import           Control.Lens
 import           Control.Arrow
 import qualified Data.Vector as V
@@ -11,8 +14,11 @@ import qualified Data.Vector as V
 
 import           Data.GameObject ( GameObject(..)
                                  , drawObject
-                                 , location )
-import           Utils (lookAt, step, norm)
+                                 , location
+                                 , drawObject2)
+import           Utils (lookAt, step, norm, remTrans)
+import           Data.SkyBox
+-- import           Data.Traversable (traverse)
 
 data Objects = Objects {
   _player :: GameObject,
@@ -22,7 +28,8 @@ data Objects = Objects {
 data Scene = Scene {
   _campos     :: Vector GLRaw.GLfloat,
   _objects    :: Objects,
-  _projection :: Vector GLRaw.GLfloat }
+  _projection :: Vector GLRaw.GLfloat,
+  _skyBox :: Maybe SkyBox }
 
 makeLenses ''Objects
 
@@ -34,16 +41,22 @@ traverseObjects =
 
 
 class Drawable d where
-  draw :: d -> IO ()
+  draw :: SDL.Window -> d -> IO ()
 
 instance Drawable Scene where
-  draw (Scene pos obj proj) =
+  draw window (Scene pos obj proj msb) =
     let camMat     = lookAt pos $ obj^.player.location
         objectDraw = drawObject camMat proj
+        objectDraw2 = drawObject2 camMat proj
+        drawSB      = drawSkyBox (remTrans camMat) proj
     in
-      objectDraw (obj^.player)
-      >> V.mapM_ objectDraw (obj^.npc)
+      GL.clear [GL.ColorBuffer, GL.DepthBuffer]
+      >> traverse drawSB msb
+      >> objectDraw (obj^.player)
+      >> V.mapM_ objectDraw2 (obj^.npc)
       >> V.mapM_ objectDraw (obj^.area)
+      >> SDL.glSwapWindow window
+
 
 -- CAMERA
 

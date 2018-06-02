@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedLists #-}
+{-# LANGUAGE Strict #-}
 module EventHandler where
 
 import qualified SDL
@@ -24,8 +25,8 @@ keyHandler SDL.ScancodeW = moveForwardCamera
 keyHandler SDL.ScancodeS = moveBackCamera
 keyHandler SDL.ScancodeLeft = over (objects.player) $ putForceOnTipLoc [10,0,0] -- turnQuatZ (step * 2) --   -- $
 keyHandler SDL.ScancodeRight = over (objects.player) $ putForceOnTipLoc [-10,0,0]  -- turnQuatZ (negate step * 2) --  -- $
-keyHandler SDL.ScancodeDown = over (objects.player) $ putForceOnTipLoc [0,1,0] -- turnQuatZ (step * 2) --   -- $
-keyHandler SDL.ScancodeUp = over (objects.player) $ putForceOnTipLoc [0,-1,0]  -- turnQuatZ (negate step * 2) --  -- $
+keyHandler SDL.ScancodeDown = over (objects.player) $ putForceOnTipLoc [0,10,0] -- turnQuatZ (step * 2) --   -- $
+keyHandler SDL.ScancodeUp = over (objects.player) $ putForceOnTipLoc [0,-10,0]  -- turnQuatZ (negate step * 2) --  -- $
 keyHandler SDL.ScancodeSpace = over (objects.player) boost
 keyHandler _             = id
 

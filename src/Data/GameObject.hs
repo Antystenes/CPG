@@ -1,5 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
-
+{-# LANGUAGE Strict #-}
+{-# LANGUAGE DeriveAnyClass, DeriveGeneric #-}
 module Data.GameObject where
 
 import qualified Data.Vector.Storable as VS
@@ -11,19 +12,21 @@ import           Graphics.Rendering.OpenGL.GL (($=))
 import qualified Graphics.GL as GLRaw
 import qualified Data.HashMap               as HM
 import           Foreign.Ptr (intPtrToPtr, IntPtr(..))
+import Data.Vector.Strategies
+import GHC.Generics
 
 import           Data.Mesh
 import           Data.PhysicsData
 import           Utils.Quaternions
 import           Data.Shaders
 
-import           Utils (posToMatV,glTexture)
+import           Utils (posToMatV,glTexture,pointAt)
 
 data GameObject = GameObject {
   _mesh     :: Mesh,
   _location :: Vector Float,
   _physics  :: Maybe PhysicsData,
-  _children :: [GameObject] }
+  _children :: [GameObject] } deriving (Generic, NFData)
 
 instance Show GameObject where
   show (GameObject _ l p _) = show l ++ "\n" ++ show p ++ "\n"
@@ -40,9 +43,42 @@ turnQuatZ = over (mesh.quaternion) . quatConcat . rotQuatZ
   where
     rotQuatZ t = cos (t/2) +:: (0,sin $ t / 2,0)
 
+
+drawObject2 cam proj obj = do
+  GL.currentProgram $= Just (obj^.mesh.shaders.program)
+  GL.bindVertexArrayObject $= Just (obj^.mesh.vao)
+
+  passMatrix "camera" $ flatten cam
+  passMatrix "proj" proj
+  traverse (passMatrix "rot" . pointAt . view speed) $ obj^.physics
+  passMatrix "pos" . posToMatV $ obj^.location
+
+  passTexture "texSampler" 0 $ obj^.mesh.texture
+  passTexture "normSampler" 1 $ obj^.mesh.normalMap
+
+  GL.drawElements GL.Triangles indLen GL.UnsignedInt (intPtrToPtr $ IntPtr 0)
+
+  GL.bindVertexArrayObject $= Nothing
+  where
+    indLen    = fromIntegral . VS.length $ obj^.mesh.indices
+    passMatrix = passMatrixToProg $ obj^.mesh.shaders
+    passTexture = passTextureToProg GL.Texture2D $ obj^.mesh.shaders
+
+
+passTextureToProg tp shaders name pos mtex = do
+  GLRaw.glActiveTexture $ glTexture pos
+  GL.textureBinding tp $= mtex
+  GL.uniform (GL.UniformLocation $ uniformName shaders name) $= GL.TextureUnit pos
+  return ()
+
+passMatrixToProg shaders name mat =
+  VS.unsafeWith mat $
+     GLRaw.glUniformMatrix4fv (uniformName shaders name) 1 0
+
 drawObject cam proj obj = do
   GL.currentProgram $= Just (obj^.mesh.shaders.program)
   GL.bindVertexArrayObject $= Just (obj^.mesh.vao)
+
   passMatrix "camera" $ flatten cam
   passMatrix "proj" proj
   passMatrix "rot" . quatToMatV $ obj^.mesh.quaternion
@@ -56,12 +92,5 @@ drawObject cam proj obj = do
   GL.bindVertexArrayObject $= Nothing
   where
     indLen    = fromIntegral . VS.length $ obj^.mesh.indices
-    uniformName name =
-      HM.findWithDefault (-1) name $ obj^.mesh.shaders.uniforms
-    passMatrix name mat =
-      VS.unsafeWith mat $
-         GLRaw.glUniformMatrix4fv (uniformName name) 1 0
-    passTexture name pos mtex = do
-      GLRaw.glActiveTexture $ glTexture pos
-      GL.textureBinding GL.Texture2D $= mtex
-      GL.uniform (GL.UniformLocation $ uniformName name) $= GL.TextureUnit pos
+    passMatrix = passMatrixToProg $ obj^.mesh.shaders
+    passTexture = passTextureToProg GL.Texture2D $ obj^.mesh.shaders
