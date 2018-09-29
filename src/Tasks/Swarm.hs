@@ -17,11 +17,14 @@ import           Data.List (nub)
 import           Control.Monad ((<=<), foldM, when)
 import Debug.Trace
 import qualified Data.HashTable.ST.Cuckoo as HT
+import qualified Data.HashMap as HM
 import Data.Vector.Strategies
 import GHC.Generics
+import Control.Arrow
 
 import Data.GameObject
 import Physics.Mechanics
+import Physics.Collision
 import Data.PhysicsData
 
 import Utils (norm,normalize)
@@ -34,7 +37,7 @@ gravityWeight = 0.1
 
 cellSize = 4
 
-vehSize = 1.2
+vehSize = 2
 minDist = 4
 
 off = map ((.) (round.(/cellSize))) [(+ vehSize),(+ negate vehSize)]
@@ -45,29 +48,80 @@ addInPl v mv = VS.zipWithM_ (\i a -> MV.modify mv (+a) i) [0,1,2] v
 data BoidComputation = BoidComputation { _object :: GameObject
                                        , _sumSp :: Vector Float
                                        , _separ :: Vector Float
-                                       , _nrNeighb :: {-# UNPACK #-} Int} deriving (Show, Generic, NFData)
+                                       , _nrNeighb :: {-# UNPACK #-} Int} deriving Show
 
 makeLenses ''BoidComputation
+
+ins :: Int -> Maybe [Int] -> (Maybe [Int], ())
+ins ind (Just l) = (Just (ind:l),())
+ins ind Nothing  = (Just [ind],())
+
+markObject t ind=
+  mapM_ (\v -> HT.mutate t (VS.unsafeIndex v 0,VS.unsafeIndex v 1,VS.unsafeIndex v 2) $ ins ind) .
+  VS.mapM (\x -> ($ x) <$> off) .
+  view location
+
+createGrid :: V.Vector GameObject ->
+               ST s (CollisionGrid s, V.Vector PrimitiveComputation)
+createGrid v = do
+  ht <- HT.newSized 6000
+  vec <- V.imapM (process ht) v
+  return (ht, vec)
+  where
+    process ht ind ob = do
+      markObject ht ind ob
+      return $ prepareCPrim ob
+
+getCollisionData :: CollisionGrid s ->
+                     V.Vector PrimitiveComputation ->
+                     ST s (HM.Map (Int, Int) [Contact])
+getCollisionData g prims =
+  HT.foldM (\a p -> return $ collisionsInCell prims a (second nub p)) HM.empty g
+
+getContacts :: V.Vector GameObject -> HM.Map (Int, Int) [Contact]
+getContacts v =
+  traceShowId $ runST $ createGrid v >>= uncurry getCollisionData
+
+resolveContacts :: V.Vector GameObject -> V.Vector GameObject
+resolveContacts =
+  getContacts >>= HM.foldWithKey folder id
+  where folder k = (.) . resolveCollision k
+
+
+collisionsInCell :: V.Vector PrimitiveComputation ->
+                      HM.Map (Int, Int) [Contact] ->
+                      (a, [Int]) ->
+                      HM.Map (Int, Int) [Contact]
+collisionsInCell prims m (x, ix1:ix2:l) =
+  let newM = insertCollisions prims m ix1 ix2
+  in collisionsInCell prims newM (x, ix2:l)
+collisionsInCell _ m _ = m
+
+insertCollisions :: V.Vector PrimitiveComputation ->
+                      HM.Map (Int, Int) [Contact] ->
+                      Int -> Int ->
+                      HM.Map (Int, Int) [Contact]
+insertCollisions prims m ix1 ix2 =
+  let key = (ix1, ix2)
+      check = V.unsafeIndex prims
+  in if HM.member key m
+     then m
+     else let val = view contacts $
+                    detectCollision (check ix1) (check ix2)
+          in if null val
+             then m
+             else HM.insert key val m
+
+
 
 fillGrid :: V.Vector GameObject -> ST s (CollisionGrid s, STVector s BoidComputation)
 fillGrid v = do
   ht <- HT.newSized 6000
-  v <- V.thaw =<< V.imapM (process ht) v
-  return (ht,v)
+  vec <- V.thaw =<< V.imapM (process ht) v
+  return (ht,vec)
   where
-    markObject ind obj t =
-      let loc = obj^.location
-      in mapM_ (\v -> HT.mutate t (VS.unsafeIndex v 0,VS.unsafeIndex v 1,VS.unsafeIndex v 2) (ins ind))
-       . VS.mapM (\x -> ($ x) <$> off)
-       $ loc
-
-    ins :: Int -> Maybe [Int] -> (Maybe [Int], ())
-    ins ind (Just l) = (Just (ind:l),())
-    ins ind Nothing  = (Just [ind],())
-
-    process :: CollisionGrid s -> Int -> GameObject -> ST s BoidComputation
     process g ind ob = do
-      markObject ind ob g
+      markObject g ind ob
       return $ initBoidComputation ob
 
 computeForces :: (GameObject -> GameObject) -> V.Vector GameObject -> V.Vector GameObject

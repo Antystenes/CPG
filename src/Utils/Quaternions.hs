@@ -1,10 +1,12 @@
-{-# LANGUAGE OverloadedLists #-}
+{-# LANGUAGE OverloadedLists
+           , TypeFamilies
+           , FlexibleContexts #-}
 
 module Utils.Quaternions where
 
 import           Number.Quaternion hiding (normalize,norm)
 import qualified Number.Quaternion as Q
-import           Numeric.LinearAlgebra (Matrix, Vector, tr, cmap,(<>))
+import           Numeric.LinearAlgebra (Matrix, Vector, tr, cmap,(<>), inv,single,double)
 import qualified Data.Vector.Storable as VS
 import qualified Numeric.LinearAlgebra.Data as LD
 
@@ -16,11 +18,15 @@ qvMul v = quatConcat (0 +:: (VS.unsafeIndex v 0,VS.unsafeIndex v 1,VS.unsafeInde
 quatToLInv inertiaDiag quat =
   let orientation = quatToMat3 quat
   in tr orientation
-   <> cmap (\x -> if x == 0 then 0 else 1/x) inertiaDiag
+   <> (single . inv . double) inertiaDiag
    <> orientation
 
 rotateWithQuat :: T Float -> VS.Vector Float -> VS.Vector Float
-rotateWithQuat quat [a,b,c] = (\(a,b,c) -> [a,b,c]) . imag . flip quatConcat (qInverse quat) $ quatConcat quat (0 +:: (a,b,c))
+rotateWithQuat quat [a,b,c] =
+  (\(a,b,c) -> [a,b,c]) .
+  imag .
+  flip quatConcat (qInverse quat) $
+  quatConcat quat (0 +:: (a,b,c))
 
 addQuat q1 q2 =
   let r1 = real q1
@@ -43,7 +49,7 @@ quatToMatV q =
      ,       ki-rj,       kj+ri, r2-i2-j2+k2, 0
      ,           0,           0,           0, 1]
 
-quatToMat = LD.reshape 4 . quatToMatV
+quatToMat = tr . LD.reshape 4 . quatToMatV
 
 quatToMat3 :: T Float -> Matrix Float
 quatToMat3 = LD.fromArray2D . toRotationMatrix

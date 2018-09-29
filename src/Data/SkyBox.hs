@@ -66,8 +66,10 @@ texTargets =
   , GL.TextureCubeMapNegativeZ ]
 
 fnames :: [String]
-fnames = map (("media/SkyBox/"++).(++".jpg")) . replicate 6 $ "Starscape"
-  -- map (("media/SkyBox/"++).(++".jpg"))
+fnames = -- map (("media/SkyBox/"++).(++".jpg")) . replicate 6 $ "Starscape"
+  map ("media/sbox2/cgp_1/textures/"++) [ "xpos.png", "xneg.png", "ypos.png", "yneg.png", "zpos.png", "zneg.png"]
+
+
   -- [ "right"
   -- , "left"
   -- , "up"

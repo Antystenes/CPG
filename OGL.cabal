@@ -15,7 +15,7 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Lib
+  exposed-modules:     Core
                      , SDLib
                      , OBJReader
                      , Utils
@@ -27,6 +27,7 @@ library
                      , Data.Scene
                      , Data.SkyBox
                      , Physics.Mechanics
+                     , Physics.Collision
                      , Tasks.Swarm
                      , Tasks.Curve
                      , EventHandler

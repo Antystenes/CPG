@@ -14,22 +14,21 @@ data Shaders = Shaders { _program  :: GL.Program,
 
 makeLenses ''Shaders
 
+loadAndCompileShader stype name = do
+  shad <- GL.createShader stype
+  shadSrc <- BS.readFile name
+  GL.shaderSourceBS shad $= shadSrc
+  GL.compileShader shad
+  return shad
+
 loadShaders :: String -> String -> [String] -> IO Shaders
 loadShaders vertNm fragNm uniformNms = do
-  vertexShader   <- GL.createShader GL.VertexShader
-  fragmentShader <- GL.createShader GL.FragmentShader
-  vertSrc        <- BS.readFile vertNm
-  fragSrc        <- BS.readFile fragNm
-  GL.shaderSourceBS vertexShader $= vertSrc
-  GL.shaderSourceBS fragmentShader $= fragSrc
-  GL.compileShader vertexShader
-  GL.compileShader fragmentShader
+  vertShader <- loadAndCompileShader GL.VertexShader vertNm
+  fragShader <- loadAndCompileShader GL.FragmentShader fragNm
   prog <- GL.createProgram
-  GL.attachShader prog vertexShader
-  GL.attachShader prog fragmentShader
+  mapM_ (GL.attachShader prog) [vertShader, fragShader]
   GL.linkProgram prog
-  GL.detachShader prog vertexShader
-  GL.detachShader prog fragmentShader
+  mapM_ (GL.detachShader prog) [vertShader, fragShader]
   Shaders prog <$> foldM (addUniform prog) HM.empty uniformNms
     where
       addUniform prog hm name = do

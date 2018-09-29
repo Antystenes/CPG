@@ -11,13 +11,14 @@ import           Control.Lens
 import           Control.Arrow
 import qualified Data.Vector as V
 
-
 import           Data.GameObject ( GameObject(..)
                                  , drawObject
                                  , location
                                  , drawObject2)
 import           Utils (lookAt, step, norm, remTrans)
 import           Data.SkyBox
+import           Tasks.Swarm
+import           Debug.Trace
 -- import           Data.Traversable (traverse)
 
 data Objects = Objects {
@@ -35,6 +36,16 @@ makeLenses ''Objects
 
 makeLenses ''Scene
 
+resolveObjectCollisions obs =
+  let v = resolveContacts .
+          V.cons (obs^.player) $
+          (obs^.npc) -- V.++ (obs^.area)
+      newPlayer = V.head v
+      newNpcs =
+        -- V.take (V.length (obs^.npc)) .
+        V.drop 1 $ v
+  in set player newPlayer . set npc newNpcs $ obs
+
 traverseObjects :: (GameObject -> GameObject) -> Scene -> Scene
 traverseObjects =
   over (objects.player) &&& over (objects.npc.traverse) >>> uncurry (.)
@@ -46,17 +57,16 @@ class Drawable d where
 instance Drawable Scene where
   draw window (Scene pos obj proj msb) =
     let camMat     = lookAt pos $ obj^.player.location
-        objectDraw = drawObject camMat proj
+        objectDraw = drawObject (msb^?_Just.skyTex) camMat proj
         objectDraw2 = drawObject2 camMat proj
         drawSB      = drawSkyBox (remTrans camMat) proj
     in
       GL.clear [GL.ColorBuffer, GL.DepthBuffer]
       >> traverse drawSB msb
       >> objectDraw (obj^.player)
-      >> V.mapM_ objectDraw2 (obj^.npc)
+      >> V.mapM_ objectDraw (obj^.npc)
       >> V.mapM_ objectDraw (obj^.area)
       >> SDL.glSwapWindow window
-
 
 -- CAMERA
 
@@ -79,7 +89,7 @@ adjustCamera scene =
   let playPos = scene^.objects.player.location
       pointer = playPos - scene^.campos
       dist    = norm pointer
-      maxDist = 5
+      maxDist = 10
       tooFar  = dist > maxDist
       movement= scale ((dist-maxDist)/dist) pointer
   in if tooFar then over campos (+movement) scene

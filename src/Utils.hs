@@ -6,7 +6,7 @@ module Utils where
 
 import qualified Graphics.GL as GLRaw
 import qualified Graphics.Rendering.OpenGL.GL as GL
-import           Numeric.LinearAlgebra ((><), Vector, Matrix, scale, cross, dot)
+import           Numeric.LinearAlgebra ((><), Vector, Matrix, scale, cross, dot, tr)
 import qualified Numeric.LinearAlgebra as L
 import           Data.Vector.Storable ((!))
 import qualified Numeric.LinearAlgebra.Data as LD
@@ -25,7 +25,7 @@ posToMatV v =
              ,0,0,1,0
              ,VS.unsafeIndex v 0,VS.unsafeIndex v 1, VS.unsafeIndex v 2,1]
 
-posToMat = LD.reshape 4 . posToMatV
+posToMat = tr . LD.reshape 4 . posToMatV
 
 glTexture :: GL.GLuint -> GLRaw.GLenum
 glTexture = (GLRaw.GL_TEXTURE0+) . fromIntegral

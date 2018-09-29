@@ -4,27 +4,53 @@ module OBJReader where
 
 import qualified Data.HashMap as HM
 import qualified Data.Vector.Storable as VS
+import qualified Data.Vector as V
 import           Data.Vector.Storable ((!))
 import           Control.Arrow
 import           Control.Lens
-import           Data.List (nub)
+import           Data.List (nub, nubBy)
 import qualified Numeric.LinearAlgebra as L
 import qualified Graphics.Rendering.OpenGL.GL as GL
+import           Data.Function (on)
 import Debug.Trace
+
+import Physics.Collision
 
 splitOn x =
   foldr (\c -> if c == x then ([]:) else over (ix 0) (c:)) [[]]
 
 addP (a,b) (c,d) = (a+b,c+d)
 
+getFace :: [String] -> [(Int, Int)]
+getFace =
+  map ((\[v,_,n] -> (read v - 1,read n - 1)) . splitOn '/') . tail
+
+readVectors :: String -> [[String]] -> [VS.Vector Float]
+readVectors vtype =
+  map (VS.fromList.map read.tail) . filter ((==vtype) . head)
+
+readPoints = readVectors "v"
+readNormals = readVectors "vn"
+
+readBoxFromObj :: FilePath -> IO Primitive
+readBoxFromObj fn = do
+  text <- map words . lines <$> readFile fn
+  let p = V.fromList . readPoints $ text
+      q = V.fromList . readNormals $  text
+      f = map (V.unsafeIndex p *** V.unsafeIndex q >>> uncurry (flip Squad)) .
+          nubBy ((==) `on` snd) .
+          map (head . getFace) .
+          filter ((=="f").head) $ text
+  return $ Box p (V.fromList f)
+
 readOBJ :: FilePath -> IO (VS.Vector Float, VS.Vector GL.BaseInstance,[VS.Vector Float])
 readOBJ fn = do
   text <- map words . lines <$> readFile fn
   let
-    verts    = map (VS.fromList.map read.tail) . filter ((=="v") . head) $ text
+    verts    = readPoints text
     normals :: [VS.Vector Float]
-    normals  = map (VS.fromList.map read.tail) . filter ((=="vn") . head) $ text
-    faces    = (map ((\[v,_,n] -> (read v - 1,read n - 1)) . splitOn '/') . tail) <$> filter ((=="f").head) text :: [[(Int,Int)]]
+    normals  = readNormals text
+    faces    = map getFace . filter ((=="f").head) $ text
     vertData = nub . concat $ faces
     vertIxMap= HM.fromList . flip zip [0..] $ vertData
     --                 u v color
