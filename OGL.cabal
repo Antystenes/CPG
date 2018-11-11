@@ -20,7 +20,9 @@ library
                      , OBJReader
                      , Utils
                      , Utils.Quaternions
+                     , Data.Vector3
                      , Data.Shaders
+                     , Data.Shader
                      , Data.Mesh
                      , Data.PhysicsData
                      , Data.GameObject
@@ -49,6 +51,8 @@ library
                      , hashtables
                      , vector-strategies
                      , deepseq
+                     , indexed
+                     , linear
   default-language:    Haskell2010
 
 executable OGL-exe
